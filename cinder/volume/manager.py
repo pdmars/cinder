@@ -50,6 +50,7 @@ from cinder.openstack.common import excutils
 from cinder.openstack.common import importutils
 from cinder.openstack.common import jsonutils
 from cinder.openstack.common import log as logging
+from cinder.openstack.common import loopingcall
 from cinder.openstack.common import periodic_task
 from cinder.openstack.common import timeutils
 from cinder.openstack.common import uuidutils
@@ -170,7 +171,7 @@ def locked_snapshot_operation(f):
 class VolumeManager(manager.SchedulerDependentManager):
     """Manages attachable block storage devices."""
 
-    RPC_API_VERSION = '1.16'
+    RPC_API_VERSION = '1.17'
 
     target = messaging.Target(version=RPC_API_VERSION)
 
@@ -1126,7 +1127,52 @@ class VolumeManager(manager.SchedulerDependentManager):
             context, snapshot, event_suffix,
             extra_usage_info=extra_usage_info, host=self.host)
 
-    def extend_volume(self, context, volume_id, new_size, reservations):
+    def get_volume_stats(self, context, volume_id, refresh=False):
+        return self.driver.get_volume_stats(refresh=refresh)
+
+    def _poll_blockdev(self, context, server_id, volume_id, new_size_bytes):
+        if self.blockdev_retries <= 0:
+            raise loopingcall.LoopingCallDone()
+        nova_api = compute.API()
+        blockdev = nova_api.get_volume_blockdev(context, server_id, volume_id)
+        if int(blockdev.bytes) == new_size_bytes:
+            raise loopingcall.LoopingCallDone()
+        self.blockdev_retries -= 1
+        msg = _("Volume %(id)s blockdev size %(blockdev_size)s doesn't "
+                "match requested new size %(new_size)s, retrying "
+                "%(tries)s times.") % {
+                'id': volume_id,
+                'blockdev_size': blockdev.bytes,
+                'new_size': new_size_bytes,
+                'tries': self.blockdev_retries}
+        LOG.debug(msg)
+
+    def _online_extend(self, context, volume, new_size):
+        nova_api = compute.API()
+        nova_api.rescan_volume(context,
+                               volume['instance_uuid'],
+                               volume['id'])
+        self.blockdev_retries = 3
+        new_size_bytes = int(new_size)*1024*1024*1024
+        timer = loopingcall.FixedIntervalLoopingCall(
+                    self._poll_blockdev,
+                    context,
+                    volume['instance_uuid'],
+                    volume['id'],
+                    new_size_bytes)
+        timer.start(interval=10).wait()
+        blockdev = nova_api.get_volume_blockdev(context,
+                                                volume['instance_uuid'],
+                                                volume['id'])
+        if int(blockdev.bytes) != new_size_bytes:
+            msg = _("The underlying block device size %(blockdev_bytes)s "
+                    "doesn't match the requested new size %(new_size)s.") % {
+                    'blockdev_bytes': blockdev.bytes,
+                    'new_size': new_size_bytes}
+            raise exception.CinderException(msg)
+
+    def extend_volume(self, context, volume_id, new_size, reservations,
+                      initial_status=None, online=False):
         try:
             # NOTE(flaper87): Verify the driver is enabled
             # before going forward. The exception will be caught
@@ -1142,7 +1188,10 @@ class VolumeManager(manager.SchedulerDependentManager):
         self._notify_about_volume_usage(context, volume, "resize.start")
         try:
             LOG.info(_("volume %s: extending"), volume['id'])
-            self.driver.extend_volume(volume, new_size)
+            # TODO(pdmars): context is only added here for the LVM hack
+            self.driver.extend_volume(context, volume, new_size)
+            if online:
+                self._online_extend(context, volume, new_size)
             LOG.info(_("volume %s: extended successfully"), volume['id'])
         except Exception:
             LOG.exception(_("volume %s: Error trying to extend volume"),
@@ -1158,8 +1207,11 @@ class VolumeManager(manager.SchedulerDependentManager):
                 return
 
         QUOTAS.commit(context, reservations)
+        new_status = 'available'
+        if initial_status is not None:
+            new_status = initial_status
         self.db.volume_update(context, volume['id'], {'size': int(new_size),
-                                                      'status': 'available'})
+                                                      'status': new_status})
         self.stats['allocated_capacity_gb'] += size_increase
         self._notify_about_volume_usage(
             context, volume, "resize.end",

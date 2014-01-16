@@ -379,7 +379,10 @@ class LVMVolumeDriver(driver.VolumeDriver):
               'vg': self.configuration.volume_group,
               'lvm_type': self.configuration.lvm_type,
               'lvm_mirrors': self.configuration.lvm_mirrors})
-
+        # TODO(pdmars): this included for testing purposes only, the LVM driver
+        # doesn't actually support online extending without a hack to delete
+        # and recreate the iSCSI target after it's extended.
+        data['online_extend'] = True
         self._stats = data
 
     def extend_volume(self, volume, new_size):
@@ -466,6 +469,13 @@ class LVMISCSIDriver(LVMVolumeDriver, driver.ISCSIDriver):
         self.backend_name =\
             self.configuration.safe_get('volume_backend_name') or 'LVM_iSCSI'
         self.protocol = 'iSCSI'
+
+    # TODO(pdmars): this is a hack included for testing purposes only, but
+    # without this the iSCSI target won't show the new size after lvextend
+    def extend_volume(self, context, volume, new_size):
+        super(LVMISCSIDriver, self).extend_volume(volume, new_size)
+        self.remove_export(context, volume)
+        self.create_export(context, volume)
 
     def set_execute(self, execute):
         super(LVMISCSIDriver, self).set_execute(execute)

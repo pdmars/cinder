@@ -285,6 +285,27 @@ class VolumeActionsController(wsgi.Controller):
         self.volume_api.extend(context, volume, size)
         return webob.Response(status_int=202)
 
+    @wsgi.action('os-online_extend')
+    def _online_extend(self, req, id, body):
+        """Extend size of an in-use volume (requires backend support)."""
+        context = req.environ['cinder.context']
+        authorize(context, 'online_extend')
+
+        try:
+            volume = self.volume_api.get(context, id)
+        except exception.VolumeNotFound as error:
+            raise webob.exc.HTTPNotFound(explanation=error.msg)
+
+        try:
+            int(body['os-online_extend']['new_size'])
+        except (KeyError, ValueError, TypeError):
+            msg = _("New volume size must be specified as an integer.")
+            raise webob.exc.HTTPBadRequest(explanation=msg)
+
+        size = body['os-online_extend']['new_size']
+        self.volume_api.extend(context, volume, size, online=True)
+        return webob.Response(status_int=202)
+
     @wsgi.action('os-update_readonly_flag')
     def _volume_readonly_update(self, req, id, body):
         """Update volume readonly flag."""

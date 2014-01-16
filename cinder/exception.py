@@ -155,6 +155,10 @@ class InvalidVolumeAttachMode(Invalid):
                 "volume %(volume_id)s.")
 
 
+class InvalidVolumeExtend(Invalid):
+    message = _("Invalid volume extend: %(reason)s")
+
+
 class VolumeAttached(Invalid):
     message = _("Volume %(volume_id)s is still attached, detach volume first.")
 

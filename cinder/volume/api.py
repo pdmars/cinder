@@ -730,10 +730,22 @@ class API(base.Base):
         return response
 
     @wrap_check_policy
-    def extend(self, context, volume, new_size):
-        if volume['status'] != 'available':
-            msg = _('Volume status must be available to extend.')
-            raise exception.InvalidVolume(reason=msg)
+    def extend(self, context, volume, new_size, online=False):
+        if not online:
+            if volume['status'] != 'available':
+                msg = _('Volume status must be available to extend.')
+                raise exception.InvalidVolume(reason=msg)
+        else:
+            online_supported = False
+            volume_stats = self.volume_rpcapi.get_volume_stats(context,
+                                                               volume,
+                                                               refresh=True)
+            if volume_stats:
+                online_supported = volume_stats.get('online_extend', False)
+            if not online_supported:
+                msg = _("Online extend is not supported by the volume driver")
+                LOG.error(msg)
+                raise exception.InvalidVolumeExtend(reason=msg)
 
         size_increase = (int(new_size)) - volume['size']
         if size_increase <= 0:
@@ -764,9 +776,14 @@ class API(base.Base):
                 consumed=_consumed('gigabytes'),
                 quota=quotas['gigabytes'])
 
+        initial_status = volume['status']
         self.update(context, volume, {'status': 'extending'})
-        self.volume_rpcapi.extend_volume(context, volume, new_size,
-                                         reservations)
+        self.volume_rpcapi.extend_volume(context,
+                                         volume,
+                                         new_size,
+                                         reservations,
+                                         initial_status=initial_status,
+                                         online=online)
 
     @wrap_check_policy
     def migrate_volume(self, context, volume, host, force_host_copy):

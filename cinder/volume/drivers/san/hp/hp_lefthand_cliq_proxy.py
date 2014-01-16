@@ -429,6 +429,7 @@ class HPLeftHandCLIQProxy(SanISCSIDriver):
         data['reserved_percentage'] = 0
         data['storage_protocol'] = 'iSCSI'
         data['vendor_name'] = 'Hewlett-Packard'
+        data['online_extend'] = True
 
         result_xml = self._cliq_run_xml(
             "getClusterInfo", {

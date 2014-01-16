@@ -23,6 +23,7 @@
     "volume_extension:volume_encryption_metadata": [["rule:admin_or_owner"]],
     "volume_extension:extended_snapshot_attributes": [],
     "volume_extension:volume_image_metadata": [],
+    "volume_extension:volume_actions:online_extend": [["rule:admin_api"]],
 
     "volume_extension:quotas:show": [],
     "volume_extension:quotas:update": [["rule:admin_api"]],

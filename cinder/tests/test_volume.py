@@ -1992,6 +1992,45 @@ class VolumeTestCase(BaseVolumeTestCase):
         self.assertEqual(snap['display_name'], 'test update name')
 
     @mock.patch.object(QUOTAS, 'reserve')
+    def test_online_extend_volume(self, reserve):
+        """Test volume can be online extended at API level."""
+        # create a volume and assign to host
+        volume = tests_utils.create_volume(self.context, size=2,
+                                           status='creating', host=CONF.host)
+        self.volume.create_volume(self.context, volume['id'])
+        volume['status'] = 'in-use'
+        volume['host'] = 'fakehost'
+
+        volume_api = cinder.volume.api.API()
+
+        # drivers that don't support online extend should raise invalid
+        def fake_get_volume_stats(self, ctxt, volume, refresh=False):
+            return {'online_extend': False}
+        self.stubs.Set(volume_rpcapi.VolumeAPI, 'get_volume_stats',
+                       fake_get_volume_stats)
+
+        self.assertRaises(exception.InvalidVolumeExtend,
+                          volume_api.extend,
+                          self.context,
+                          volume,
+                          3,
+                          online=True)
+
+        # specify that online extend is now supported by the driver
+        def fake_get_volume_stats(self, ctxt, volume, refresh=False):
+            return {'online_extend': True}
+        self.stubs.Set(volume_rpcapi.VolumeAPI, 'get_volume_stats',
+                       fake_get_volume_stats)
+
+        # successfully online extend the volume
+        reserve.return_value = ["RESERVATION"]
+        volume_api.extend(self.context, volume, 3, online=True)
+        volume = db.volume_get(context.get_admin_context(), volume['id'])
+        self.assertEqual(volume['status'], 'extending')
+
+        db.volume_destroy(self.context, volume['id'])
+
+    @mock.patch.object(QUOTAS, 'reserve')
     def test_extend_volume(self, reserve):
         """Test volume can be extended at API level."""
         # create a volume and assign to host

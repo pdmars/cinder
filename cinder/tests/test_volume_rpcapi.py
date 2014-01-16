@@ -246,7 +246,9 @@ class VolumeRpcAPITestCase(test.TestCase):
                               volume=self.fake_volume,
                               new_size=1,
                               reservations=self.fake_reservations,
-                              version='1.14')
+                              initial_status='available',
+                              online=False,
+                              version='1.17')
 
     def test_migrate_volume(self):
         class FakeHost(object):

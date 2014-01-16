@@ -115,6 +115,13 @@ def novaclient(context, admin=False):
 class API(base.Base):
     """API for interacting with novaclient."""
 
+    def rescan_volume(self, context, server_id, volume_id):
+        novaclient(context).volumes.rescan_volume(server_id, volume_id)
+
+    def get_volume_blockdev(self, context, server_id, volume_id):
+        return novaclient(context).volumes.get_volume_blockdev(server_id,
+                                                               volume_id)
+
     def update_server_volume(self, context, server_id, attachment_id,
                              new_volume_id):
         novaclient(context).volumes.update_server_volume(server_id,

@@ -51,6 +51,7 @@ class VolumeAPI(object):
         1.14 - Adds reservation parameter to extend_volume().
         1.15 - Adds manage_existing and unmanage_only flag to delete_volume.
         1.16 - Removes create_export.
+        1.17 - Adds online extend and get volume stats
     '''
 
     BASE_RPC_API_VERSION = '1.0'
@@ -59,7 +60,7 @@ class VolumeAPI(object):
         super(VolumeAPI, self).__init__()
         target = messaging.Target(topic=CONF.volume_topic,
                                   version=self.BASE_RPC_API_VERSION)
-        self.client = rpc.get_client(target, '1.15')
+        self.client = rpc.get_client(target, '1.17')
 
     def create_volume(self, ctxt, volume, host,
                       request_spec, filter_properties,
@@ -133,10 +134,17 @@ class VolumeAPI(object):
         cctxt.cast(ctxt, 'accept_transfer', volume_id=volume['id'],
                    new_user=new_user, new_project=new_project)
 
-    def extend_volume(self, ctxt, volume, new_size, reservations):
-        cctxt = self.client.prepare(server=volume['host'], version='1.14')
+    def extend_volume(self, ctxt, volume, new_size, reservations,
+                      initial_status=None, online=False):
+        cctxt = self.client.prepare(server=volume['host'], version='1.17')
         cctxt.cast(ctxt, 'extend_volume', volume_id=volume['id'],
-                   new_size=new_size, reservations=reservations)
+                   new_size=new_size, reservations=reservations,
+                   initial_status=initial_status, online=online)
+
+    def get_volume_stats(self, ctxt, volume, refresh=False):
+        cctxt = self.client.prepare(server=volume['host'], version='1.17')
+        return cctxt.call(ctxt, 'get_volume_stats', volume_id=volume['id'],
+                          refresh=refresh)
 
     def migrate_volume(self, ctxt, volume, dest_host, force_host_copy):
         cctxt = self.client.prepare(server=volume['host'], version='1.8')
